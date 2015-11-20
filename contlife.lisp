@@ -2,7 +2,10 @@
 
 (in-package #:contlife)
 
+(declaim (otpimize (speed 3) (safety 0) (size 0) (debug 0)))
+
 (defun clamp (x min max)
+  (declare (type single-float x min max))
   (if (< x min )
       min
       (if (> x max )
@@ -10,16 +13,18 @@
           x)))
 
 (defstruct transition
-  (low 0.3)
-  (high 0.75)
-  (death -0.3)
-  (life 0.05))
+  (low 0.3 :type single-float)
+  (high 0.75 :type single-float)
+  (death -0.3 :type single-float)
+  (life 0.05 :type single-float))
 
 (defun trans (low high death life)
   (make-transition :low low :high high
                    :death death :life life))
   
 (defun init-board (grid &key (probability 0.5))
+  (declare (type single-float probability))
+  (declare (type (array single-float 2) grid))
   "Randomly set cells to t and nil."
   (loop for i from 0 below (array-dimension grid 0)
      do
@@ -31,39 +36,60 @@
 
 
 (defun neighbor-weight (grid i j)
+  (declare (type (unsigned-byte 32) i j))
+  (declare (type (array single-float 2) grid))
   "Count the neighbors of grid location i,j"
   (let ((ip (if (> 0 (- i 1)) (- (array-dimension grid 0) 1) (- i 1)))
         (jp (if (> 0 (- j 1)) (- (array-dimension grid 1) 1) (- j 1)))
         (in (if (>= i (- (array-dimension grid 0) 1)) 0 (+ i 1)))
-        (jn (if (>= j (- (array-dimension grid 1) 1)) 0 (+ j 1)))
-        (count (aref grid i j)))
-    (incf count (aref grid ip jp))
-    (incf count (aref grid ip j))
-    (incf count (aref grid ip jn))
-    (incf count (aref grid i jp))
-    (incf count (aref grid i jn))
-    (incf count (aref grid in jp))
-    (incf count (aref grid in j))
-    (incf count (aref grid in jn))
-    count))
+        (jn (if (>= j (- (array-dimension grid 1) 1)) 0 (+ j 1))))
+        ;; (count (aref grid i j)))
+    ;; (incf count (aref grid ip jp))
+    ;; (incf count (aref grid ip j))
+    ;; (incf count (aref grid ip jn))
+    ;; (incf count (aref grid i jp))
+    ;; (incf count (aref grid i jn))
+    ;; (incf count (aref grid in jp))
+    ;; (incf count (aref grid in j))
+    ;; (incf count (aref grid in jn))
+    (+ (aref grid i j)
+       (aref grid ip jp)
+       (aref grid ip j)
+       (aref grid ip jn)
+       (aref grid i jp)
+       (aref grid i jn)
+       (aref grid in jp)
+       (aref grid in j)
+       (aref grid in jn)
 
+       ;; count
+       )))
+
+(declaim (inline update-board))
 (defun update-board (old-grid new-grid &key (transition (make-transition)))
+  (declare (type (array single-float 2) old-grid new-grid))
+  (declare (type transition transition))
+  
   "Update old-grid based on neighbor counts, placing the results in new-grid."
   (let ((low-life (transition-low transition))
         (high-life (transition-high transition))
         (death-amount (transition-death transition))
         (life-amount (transition-life transition)))
-  (loop for i from 0 below (array-dimension old-grid 0)
+  (loop for j from 0 below (array-dimension old-grid 1)
      do
        (setf cy 0)
-       (loop for j from 0 below (array-dimension old-grid 1)
+       (loop for i from 0 below (array-dimension old-grid 0)
           do
             (let ((nw (neighbor-weight old-grid i j)))
               (if (< low-life nw high-life)
-                  (setf (aref new-grid i j) (clamp (+ (aref old-grid i j) life-amount) 0.0 1.0))
-                  (setf (aref new-grid i j) (clamp (+ (aref old-grid i j) death-amount) 0.0 1.0))))))))
+                  (setf (aref new-grid i j) (clamp (+ (aref old-grid i j) life-amount) 0.0001 1.0))
+                  (setf (aref new-grid i j) (clamp (+ (aref old-grid i j) death-amount) 0.0001 1.0))))))))
 
 (defun draw-board (grid win-width win-height &key (multiplier 1.5))
+  (declare (type (unsigned-byte 32) win-width win-height))
+  (declare (type single-float multiplier))
+  (declare (type (array single-float 2) grid))
+  
   "Used OpenGL to display the grid."
   (gl:matrix-mode :modelview)
   (gl:push-matrix)
@@ -72,15 +98,14 @@
         (cx 0)
         (cy 0))
     (gl:begin :quads)
+    ;; (format t "~a~%" (aref grid 50 50))
     (loop for i from 0 below (array-dimension grid 0)
        do
          (setf cy 0)
          (loop for j from 0 below (array-dimension grid 1)
             do
               (let ((perc (aref grid i j)))
-                (if (> perc 0.0)
-                    (gl:color 0.0 (clamp (* multiplier perc) 0.0 1.0) 0.0)
-                    (gl:color 0 0 0)))
+                (gl:color 0.0 (clamp (* multiplier perc) 0.0 1.0) 0.0))
               (progn 
                 (gl:vertex cx cy)
                 (gl:vertex (+ dx cx) cy)
@@ -97,14 +122,17 @@
                      (multiplier 1.5)
                      (fps 30)
                      (delay 20)
+                     (fullscreen nil)
                      (transition (make-transition)))
   "Run the game of life in an SDL window."
-
+  (declare (type (unsigned-byte 32) board-width board-height win-width win-height fps delay))
+  (declare (type single-float prob multiplier))
+  (declare (type transition transtion))
 
   (let
       ((boards (list
-                (make-array `(,board-width ,board-height) :element-type 'real :initial-element 0.0)
-                (make-array `(,board-width ,board-height) :element-type 'real :initial-element 0.0)))
+                (make-array `(,board-width ,board-height) :element-type 'single-float :initial-element 0.0)
+                (make-array `(,board-width ,board-height) :element-type 'single-float :initial-element 0.0)))
        ;; boards is a cons cell pointing to two 2-d arrays of booleans
        (prev-tick 0) ;; prev-tick is the previous value of sdl-system-ticks when the board was updated
        (paused nil) ;; paused is t when paused, nil when not
@@ -115,8 +143,9 @@
       ;; Setup the window and view
       (sdl:window win-width win-height
                   :opengl t
-                  :opengl-attributes '((:sdl-gl-depth-size   16)
-                                       (:sdl-gl-doublebuffer 1)))
+                  :opengl-attributes '((:sdl-gl-depth-size 24)
+                                       (:sdl-gl-doublebuffer 1))
+                  :FULLSCREEN fullscreen)
       (setf (sdl:frame-rate) fps)
       
       (gl:viewport 0 0 win-width win-height)
