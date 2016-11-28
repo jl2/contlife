@@ -2,6 +2,8 @@
 
 (in-package #:contlife)
 
+(declaim (optimize (speed 3) (safety 0) (debug 0)))
+
 (defun clamp (x min max)
   (if (< x min )
       min
@@ -10,10 +12,10 @@
           x)))
 
 (defstruct transition
-  (low -0.75)
-  (high 0.75)
-  (death (/ -6.0 255))
-  (life (/ 18.0 255)))
+  (low -0.75d0 :type double-float)
+  (high 0.75d0 :type double-float)
+  (death (/ -6.0d0 255) :type double-float)
+  (life (/ 18.0d0 255) :type double-float))
 
 (defun trans (low high death life)
   (make-transition :low low :high high
@@ -23,7 +25,6 @@
   "Randomly set cells to t and nil."
   (loop for i from 0 below (array-dimension grid 0)
      do
-       (setf cy 0)
        (loop for j from 0 below (array-dimension grid 1)
           do
             ;; (setf (aref grid i j) (- 1.0 (random 2.0))))))
@@ -77,16 +78,17 @@
 
     count))
 
+(declaim (inline update-board))
 (defun update-board (old-grid new-grid &key (transition (make-transition)))
+  
   "Update old-grid based on neighbor counts, placing the results in new-grid."
   (let ((low-life (transition-low transition))
         (high-life (transition-high transition))
         (death-amount (transition-death transition))
         (life-amount (transition-life transition)))
-  (loop for i from 0 below (array-dimension old-grid 0)
+  (loop for j from 0 below (array-dimension old-grid 1)
      do
-       (setf cy 0)
-       (loop for j from 0 below (array-dimension old-grid 1)
+       (loop for i from 0 below (array-dimension old-grid 0)
           do
             (let ((nw (neighbor-weight old-grid i j)))
               (if (< low-life nw high-life)
@@ -94,6 +96,7 @@
                   (setf (aref new-grid i j) (clamp (+ (aref old-grid i j) death-amount) -1.0 1.0))))))))
 
 (defun draw-board (grid win-width win-height &key (multiplier 1.5))
+  
   "Used OpenGL to display the grid."
   (gl:matrix-mode :modelview)
   (gl:push-matrix)
@@ -121,7 +124,7 @@
 
 (defun handle-window-size (win-width win-height board-width board-height)
   "Adjusting the viewport and projection matrix for when the window size changes."
-
+  (declare (ignorable win-width win-height board-width board-height))
   (gl:viewport 0 0 win-width win-height)
   (gl:matrix-mode :projection)
   (gl:load-identity)
@@ -129,25 +132,21 @@
   (gl:clear :color-buffer :depth-buffer)
   (gl:point-size (/ win-width board-width 0.9)))
 
-(defun start-life (&key (board-width 200) (board-height 200)
-                     (prob 0.5)
-                     (multiplier 1.01)
-                     (fps 60)
-                     (transition (make-transition)))
-  "Run the game of life in an SDL window."
-
-
-  (let
-      ((boards (list
-                (make-array `(,board-width ,board-height) :element-type 'real :initial-element 0.0)
-                (make-array `(,board-width ,board-height) :element-type 'real :initial-element 0.0)))
-       ;; boards is a cons cell pointing to two 2-d arrays of booleans
-       (prev-tick 0) ;; prev-tick is the previous value of sdl-system-ticks when the board was updated
-       (paused nil) ;; paused is t when paused, nil when not
-       (trans (if (listp transition) (apply #'trans transition) transition)))
+(defun start-life ()
+  (let* ((board-width 200) (board-height 200)
+         (prob 0.5)
+         (multiplier 1.01)
+         (fps 60)
+         (boards (list
+                  (make-array `(,board-width ,board-height) :element-type 'real :initial-element 0.0)
+                  (make-array `(,board-width ,board-height) :element-type 'real :initial-element 0.0)))
+         ;; boards is a cons cell pointing to two 2-d arrays of booleans
+         (prev-tick 0) ;; prev-tick is the previous value of sdl-system-ticks when the board was updated
+         (paused nil) ;; paused is t when paused, nil when not
+         (trans (make-transition)))
     (init-board (car boards) :probability prob )
     (sdl2:with-init (:everything)
-      (sdl2:with-window (window :title "filevis"
+      (sdl2:with-window (window :title "Continuous Life"
                                 :flags '(:shown :resizable :opengl))
         (sdl2:with-gl-context (gl-context window)
 
